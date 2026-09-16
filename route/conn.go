@@ -99,6 +99,16 @@ func (m *ConnectionManager) TrackPacketConn(conn net.PacketConn) net.PacketConn 
 }
 
 func (m *ConnectionManager) NewConnection(ctx context.Context, this N.Dialer, conn net.Conn, metadata adapter.InboundContext, onClose N.CloseHandlerFunc) {
+	// =========================================================================
+	// 1-TCP Gatekeeper: Strict Concurrency Check (Max 1 TCP Session)
+	// =========================================================================
+	if !adapter.TryAcquireTCP() {
+		N.CloseOnHandshakeFailure(conn, onClose, E.New("max 1 TCP connection reached"))
+		return
+	}
+	conn = adapter.WrapGatekeptTCPConn(conn)
+	// =========================================================================
+
 	ctx = adapter.WithContext(ctx, &metadata)
 	var (
 		remoteConn net.Conn
@@ -173,6 +183,23 @@ func (m *ConnectionManager) NewConnection(ctx context.Context, this N.Dialer, co
 }
 
 func (m *ConnectionManager) NewPacketConnection(ctx context.Context, this N.Dialer, conn N.PacketConn, metadata adapter.InboundContext, onClose N.CloseHandlerFunc) {
+	// =========================================================================
+	// 1-UDP Gatekeeper: Strict Concurrency Check (Max 1 Match UDP Session)
+	// =========================================================================
+	if !adapter.TryAcquireUDP(metadata.Destination.Port) {
+		N.CloseOnHandshakeFailure(conn, onClose, E.New("max 1 UDP match session reached"))
+		return
+	}
+	destPort := metadata.Destination.Port
+	origOnClose := onClose
+	onClose = func(err error) {
+		adapter.ReleaseUDP(destPort)
+		if origOnClose != nil {
+			origOnClose(err)
+		}
+	}
+	// =========================================================================
+
 	ctx = adapter.WithContext(ctx, &metadata)
 	var (
 		remotePacketConn   net.PacketConn
