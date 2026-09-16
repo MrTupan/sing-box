@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 	"net/netip"
+	"sync/atomic"
 	"time"
 
 	"github.com/sagernet/sing-box/common/tlsspoof"
@@ -14,6 +15,73 @@ import (
 
 	"github.com/miekg/dns"
 )
+
+// ============================================================================
+// 1-TCP + 1-UDP Connection Concurrency Limiter
+// ============================================================================
+
+var (
+	activeTCPCount int32
+	activeUDPCount int32
+)
+
+// TryAcquireTCP checks if a TCP slot is available (Max 1).
+func TryAcquireTCP() bool {
+	if atomic.LoadInt32(&activeTCPCount) >= 1 {
+		return false
+	}
+	atomic.AddInt32(&activeTCPCount, 1)
+	return true
+}
+
+// ReleaseTCP decrements the active TCP counter.
+func ReleaseTCP() {
+	if atomic.LoadInt32(&activeTCPCount) > 0 {
+		atomic.AddInt32(&activeTCPCount, -1)
+	}
+}
+
+// TryAcquireUDP checks if a UDP match slot is available (Max 1 for 5-digit ports).
+// Ports under 10000 (like DNS port 53) bypass this limit so name resolution never breaks.
+func TryAcquireUDP(port uint16) bool {
+	if port >= 10000 {
+		if atomic.LoadInt32(&activeUDPCount) >= 1 {
+			return false
+		}
+		atomic.AddInt32(&activeUDPCount, 1)
+	}
+	return true
+}
+
+// ReleaseUDP decrements the active UDP counter when a match session closes.
+func ReleaseUDP(port uint16) {
+	if port >= 10000 {
+		if atomic.LoadInt32(&activeUDPCount) > 0 {
+			atomic.AddInt32(&activeUDPCount, -1)
+		}
+	}
+}
+
+// GatekeptTCPConn automatically releases the TCP counter slot when Close() is called.
+type GatekeptTCPConn struct {
+	net.Conn
+	released int32
+}
+
+func WrapGatekeptTCPConn(conn net.Conn) net.Conn {
+	return &GatekeptTCPConn{Conn: conn}
+}
+
+func (c *GatekeptTCPConn) Close() error {
+	if atomic.CompareAndSwapInt32(&c.released, 0, 1) {
+		ReleaseTCP()
+	}
+	return c.Conn.Close()
+}
+
+// ============================================================================
+// Core Inbound Definitions
+// ============================================================================
 
 type Inbound interface {
 	Lifecycle
