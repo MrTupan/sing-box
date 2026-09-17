@@ -740,7 +740,7 @@ jobs:
         include:
           - variant: other
             task: :app:assembleOtherDebug
-            output: app/build/outputs/apk/other/debug/*.apk
+            output: app/build/outputs/apk/other/debug/*arm64*.apk
           - variant: other-legacy
             task: :app:assembleOtherLegacyDebug
             output: app/build/outputs/apk/otherLegacy/debug/*.apk
