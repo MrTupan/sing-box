@@ -3,12 +3,9 @@ package deprecated
 import (
 	"fmt"
 
-	"github.com/sagernet/sing-box/common/badversion"
 	C "github.com/sagernet/sing-box/constant"
 	"github.com/sagernet/sing-box/experimental/locale"
 	F "github.com/sagernet/sing/common/format"
-
-	"golang.org/x/mod/semver"
 )
 
 type Note struct {
@@ -21,18 +18,7 @@ type Note struct {
 }
 
 func (n Note) Impending() bool {
-	if n.ScheduledVersion == "" {
-		return false
-	}
-	if !semver.IsValid("v" + C.Version) {
-		return false
-	}
-	versionCurrent := badversion.Parse(C.Version)
-	versionMinor := badversion.Parse(n.ScheduledVersion).Minor - versionCurrent.Minor
-	if versionCurrent.PreReleaseIdentifier == "" && versionMinor < 0 {
-		panic("invalid deprecated note: " + n.Name)
-	}
-	return versionMinor <= 1
+	return false
 }
 
 func (n Note) Message() string {
